@@ -12,3 +12,7 @@ venv/
 # OS files
 .DS_Store
 Thumbs.db
+
+# GEE keys
+*.json
+service-account-key.json

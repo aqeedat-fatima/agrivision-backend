@@ -15,6 +15,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from routes.satellite import router as satellite_router
+app.include_router(satellite_router)
+
 # ---- LOAD MODEL ONCE ----
 BASE_DIR = Path(__file__).resolve().parent
 WEIGHTS_PATH = BASE_DIR / "efficientnet_b3_cotton_best.pth"   # 👈 your actual file
