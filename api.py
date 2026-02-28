@@ -15,7 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from routes.satellite import router as satellite_router
+from routes.satellite_pc import router as satellite_router
 app.include_router(satellite_router)
 
 # ---- LOAD MODEL ONCE ----
@@ -35,3 +35,7 @@ async def predict(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+
+@app.get("/ping")
+def ping():
+    return {"ok": True}
