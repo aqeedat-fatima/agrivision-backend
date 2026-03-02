@@ -13,7 +13,11 @@ from routes.satellite_pc import router as satellite_router
 from routes.auth import router as auth_router
 from routes.history import router as history_router
 
-app = FastAPI()
+app = FastAPI(
+    openapi_url="/api/openapi.json",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+)
 
 @app.on_event("startup")
 def on_startup():
