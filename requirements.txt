@@ -1,0 +1,54 @@
+# -------------------------
+# Core API
+# -------------------------
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+python-multipart==0.0.9
+pydantic==2.7.4
+
+# -------------------------
+# Database
+# -------------------------
+SQLAlchemy==2.0.30
+
+# -------------------------
+# ML / Model
+# -------------------------
+torch==2.3.1
+torchvision==0.18.1
+pillow==10.3.0
+numpy==1.26.4
+
+# -------------------------
+# Google Earth Engine / Satellite
+# -------------------------
+earthengine-api==1.7.15
+google-api-core==2.30.0
+google-api-python-client==2.190.0
+google-auth==2.48.0
+google-auth-httplib2==0.3.0
+google-cloud-core==2.5.0
+google-cloud-storage==3.9.0
+google-crc32c==1.8.0
+google-resumable-media==2.8.0
+googleapis-common-protos==1.72.0
+
+# -------------------------
+# HTTP / Crypto
+# -------------------------
+requests==2.32.5
+urllib3==2.6.3
+certifi==2026.2.25
+charset-normalizer==3.4.4
+idna==3.11
+httplib2==0.31.2
+cryptography==46.0.5
+cffi==2.0.0
+pycparser==3.0
+rsa==4.9.1
+pyasn1==0.6.2
+pyasn1_modules==0.4.2
+proto-plus==1.27.1
+protobuf==6.33.5
+pyparsing==3.3.2
+uritemplate==4.2.0
