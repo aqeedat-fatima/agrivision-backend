@@ -16,3 +16,9 @@ Thumbs.db
 # GEE keys
 *.json
 service-account-key.json
+
+# Database
+*.db
+*.sqlite3
+
+uploads/
