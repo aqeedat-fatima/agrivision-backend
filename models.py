@@ -11,6 +11,9 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
 
+    phone = Column(String, nullable=True)
+    location = Column(String, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     farms = relationship("Farm", back_populates="user", cascade="all, delete-orphan")

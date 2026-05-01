@@ -33,6 +33,8 @@ class UpdateProfileRequest(BaseModel):
     user_id: int
     full_name: str
     email: EmailStr
+    phone: str | None = None
+    location: str | None = None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -41,15 +43,30 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
+def user_payload(user: User):
+    return {
+        "id": user.id,
+        "full_name": user.full_name,
+        "email": user.email,
+        "phone": user.phone,
+        "location": user.location,
+    }
+
+
 @router.post("/signup")
 def signup(req: SignUpRequest, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == req.email.lower().strip()).first()
+    email = req.email.lower().strip()
+
+    existing = db.query(User).filter(User.email == email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
     user = User(
         full_name=req.full_name.strip(),
-        email=req.email.lower().strip(),
+        email=email,
         password_hash=pwd_context.hash(req.password),
     )
 
@@ -57,28 +74,19 @@ def signup(req: SignUpRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
-    return {
-        "message": "Account created",
-        "user": {
-            "id": user.id,
-            "full_name": user.full_name,
-            "email": user.email,
-        },
-    }
+    return {"message": "Account created", "user": user_payload(user)}
 
 
 @router.post("/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == req.email.lower().strip()).first()
+    email = req.email.lower().strip()
+
+    user = db.query(User).filter(User.email == email).first()
 
     if not user or not pwd_context.verify(req.password, user.password_hash):
         raise HTTPException(status_code=400, detail="Invalid email or password")
 
-    return {
-        "id": user.id,
-        "full_name": user.full_name,
-        "email": user.email,
-    }
+    return user_payload(user)
 
 
 @router.post("/update-profile")
@@ -101,18 +109,13 @@ def update_profile(req: UpdateProfileRequest, db: Session = Depends(get_db)):
 
     user.full_name = req.full_name.strip()
     user.email = new_email
+    user.phone = req.phone.strip() if req.phone else None
+    user.location = req.location.strip() if req.location else None
 
     db.commit()
     db.refresh(user)
 
-    return {
-        "message": "Profile updated",
-        "user": {
-            "id": user.id,
-            "full_name": user.full_name,
-            "email": user.email,
-        },
-    }
+    return {"message": "Profile updated", "user": user_payload(user)}
 
 
 @router.post("/change-password")
