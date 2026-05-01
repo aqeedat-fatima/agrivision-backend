@@ -135,3 +135,23 @@ def change_password(req: ChangePasswordRequest, db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "Password updated"}
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    new_password: str
+
+
+@router.post("/reset-password")
+def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == req.email.lower().strip()).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="No account found with this email")
+
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    user.password_hash = pwd_context.hash(req.new_password)
+    db.commit()
+
+    return {"message": "Password reset successfully"}
