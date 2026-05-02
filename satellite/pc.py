@@ -82,7 +82,7 @@ def _compute_indices_for_item(item, geometry_geojson: dict) -> Dict[str, Any]:
     }
 
 
-def _search_items(geometry_geojson: dict, start_date: str, end_date: str, limit: int = 12):
+def _search_items(geometry_geojson: dict, start_date: str, end_date: str, limit: int = 5):
     from shapely.geometry import shape
 
     catalog = Client.open(STAC_URL)
@@ -98,9 +98,11 @@ def _search_items(geometry_geojson: dict, start_date: str, end_date: str, limit:
             "eo:cloud_cover": {"lt": 60}
         },
         limit=limit,
+        max_items=limit,
     )
 
-    return list(search.items())
+    items = list(search.items())
+    return items[:limit]
 
 
 def _compute_change_pct(timeseries: List[dict]) -> Dict[str, Any]:
@@ -121,7 +123,7 @@ def _compute_change_pct(timeseries: List[dict]) -> Dict[str, Any]:
     last_vals = [v for (d, v) in pts if d >= last_start and v is not None]
     prev_vals = [v for (d, v) in pts if prev_start <= d < last_start and v is not None]
 
-    if len(last_vals) < 2 or len(prev_vals) < 2:
+    if len(last_vals) < 1 or len(prev_vals) < 1:
         return {"ndvi_change_pct": None, "period_days": 30}
 
     last_mean = sum(last_vals) / len(last_vals)
@@ -141,14 +143,14 @@ def _compute_change_pct(timeseries: List[dict]) -> Dict[str, Any]:
 
 
 def compute_farm_metrics(geometry_geojson: dict, start_date: str, end_date: str) -> Dict[str, Any]:
-    items = _search_items(geometry_geojson, start_date, end_date, limit=12)
+    items = _search_items(geometry_geojson, start_date, end_date, limit=5)
 
     if not items:
         raise Exception("No Sentinel-2 scenes found for this polygon/date range.")
 
     items.sort(key=lambda x: x.properties.get("eo:cloud_cover", 100.0))
 
-    best = items[:12]
+    best = items[:5]
     best_signed = [pc.sign(it) for it in best]
 
     series = []
@@ -179,7 +181,7 @@ def compute_farm_metrics(geometry_geojson: dict, start_date: str, end_date: str)
         raise Exception("Scenes found, but none could be processed for this polygon.")
 
     series.sort(key=lambda p: p["date"])
-    series_for_chart = series[-12:]
+    series_for_chart = series[-5:]
 
     summary = series_for_chart[-1].copy()
     change = _compute_change_pct(series)
