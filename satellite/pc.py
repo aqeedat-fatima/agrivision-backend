@@ -144,35 +144,50 @@ def _compute_change_pct(timeseries: List[dict]) -> Dict[str, Any]:
 def _fallback_farm_metrics(start_date: str, end_date: str, reason: str) -> Dict[str, Any]:
     print("Using fallback satellite metrics because:", reason)
 
+    start_dt = datetime.fromisoformat(start_date)
+    end_dt = datetime.fromisoformat(end_date)
+
+    if end_dt <= start_dt:
+        end_dt = start_dt + timedelta(days=30)
+
+    total_days = max((end_dt - start_dt).days, 30)
+    step_days = max(total_days // 5, 7)
+
+    dates = []
+    current = start_dt
+    while current <= end_dt:
+        dates.append(current)
+        current += timedelta(days=step_days)
+
+    if dates[-1] != end_dt:
+        dates.append(end_dt)
+
+    ndvi_vals = [0.47, 0.49, 0.52, 0.54, 0.55, 0.56]
+    ndmi_vals = [0.16, 0.17, 0.19, 0.20, 0.21, 0.21]
+    evi_vals = [0.39, 0.41, 0.43, 0.45, 0.47, 0.48]
+    cloud_vals = [28.0, 24.0, 21.0, 19.0, 18.0, 18.0]
+
+    timeseries = []
+    for i, dt in enumerate(dates[:6]):
+        idx = min(i, 5)
+        timeseries.append({
+            "date": dt.isoformat(),
+            "ndvi": ndvi_vals[idx],
+            "ndmi": ndmi_vals[idx],
+            "evi": evi_vals[idx],
+            "cloud_cover": cloud_vals[idx],
+        })
+
+    summary = timeseries[-1].copy()
+    summary["scene_date"] = summary["date"]
+
     return {
-        "summary": {
-            "date": end_date,
-            "scene_date": end_date,
-            "ndvi": 0.56,
-            "ndmi": 0.21,
-            "evi": 0.48,
-            "cloud_cover": 18.0,
-        },
-        "timeseries": [
-            {
-                "date": start_date,
-                "ndvi": 0.49,
-                "ndmi": 0.18,
-                "evi": 0.41,
-                "cloud_cover": 22.0,
-            },
-            {
-                "date": end_date,
-                "ndvi": 0.56,
-                "ndmi": 0.21,
-                "evi": 0.48,
-                "cloud_cover": 18.0,
-            },
-        ],
+        "summary": summary,
+        "timeseries": timeseries,
         "change": {
-            "ndvi_change_pct": 14.2,
+            "ndvi_change_pct": 12.8,
             "period_days": 30,
-            "last_mean": 0.56,
+            "last_mean": 0.55,
             "prev_mean": 0.49,
         },
         "fallback": True,
