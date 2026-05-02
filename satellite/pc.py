@@ -151,44 +151,54 @@ def _fallback_farm_metrics(start_date: str, end_date: str, reason: str) -> Dict[
         end_dt = start_dt + timedelta(days=30)
 
     total_days = max((end_dt - start_dt).days, 30)
-    step_days = max(total_days // 5, 7)
+
+    # Create 6 realistic points across the selected date range
+    point_count = 6
+    step_days = max(total_days // (point_count - 1), 1)
 
     dates = []
-    current = start_dt
-    while current <= end_dt:
-        dates.append(current)
-        current += timedelta(days=step_days)
+    for i in range(point_count):
+      dt = start_dt + timedelta(days=i * step_days)
+      if dt > end_dt:
+          dt = end_dt
+      dates.append(dt)
 
-    if dates[-1] != end_dt:
-        dates.append(end_dt)
+    # Make sure last point is exactly end date
+    dates[-1] = end_dt
 
-    ndvi_vals = [0.47, 0.49, 0.52, 0.54, 0.55, 0.56]
-    ndmi_vals = [0.16, 0.17, 0.19, 0.20, 0.21, 0.21]
-    evi_vals = [0.39, 0.41, 0.43, 0.45, 0.47, 0.48]
-    cloud_vals = [28.0, 24.0, 21.0, 19.0, 18.0, 18.0]
+    # Realistic crop vegetation pattern:
+    # healthy but not perfect; slight natural fluctuations
+    ndvi_vals = [0.48, 0.51, 0.54, 0.53, 0.56, 0.58]
+    ndmi_vals = [0.14, 0.16, 0.18, 0.17, 0.19, 0.20]
+    evi_vals = [0.34, 0.36, 0.39, 0.38, 0.41, 0.43]
+    cloud_vals = [31.0, 24.0, 19.0, 27.0, 16.0, 21.0]
 
     timeseries = []
-    for i, dt in enumerate(dates[:6]):
-        idx = min(i, 5)
+
+    for i, dt in enumerate(dates):
         timeseries.append({
             "date": dt.isoformat(),
-            "ndvi": ndvi_vals[idx],
-            "ndmi": ndmi_vals[idx],
-            "evi": evi_vals[idx],
-            "cloud_cover": cloud_vals[idx],
+            "ndvi": ndvi_vals[i],
+            "ndmi": ndmi_vals[i],
+            "evi": evi_vals[i],
+            "cloud_cover": cloud_vals[i],
         })
 
     summary = timeseries[-1].copy()
     summary["scene_date"] = summary["date"]
 
+    prev_mean = sum(ndvi_vals[:3]) / 3
+    last_mean = sum(ndvi_vals[3:]) / 3
+    ndvi_change_pct = ((last_mean - prev_mean) / abs(prev_mean)) * 100
+
     return {
         "summary": summary,
         "timeseries": timeseries,
         "change": {
-            "ndvi_change_pct": 12.8,
+            "ndvi_change_pct": round(ndvi_change_pct, 2),
             "period_days": 30,
-            "last_mean": 0.55,
-            "prev_mean": 0.49,
+            "last_mean": round(last_mean, 3),
+            "prev_mean": round(prev_mean, 3),
         },
         "fallback": True,
         "fallback_reason": reason,
