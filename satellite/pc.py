@@ -82,7 +82,7 @@ def _compute_indices_for_item(item, geometry_geojson: dict) -> Dict[str, Any]:
     }
 
 
-def _search_items(geometry_geojson: dict, start_date: str, end_date: str, limit: int = 5):
+def _search_items(geometry_geojson: dict, start_date: str, end_date: str, limit: int = 3):
     from shapely.geometry import shape
 
     catalog = Client.open(STAC_URL)
@@ -143,14 +143,14 @@ def _compute_change_pct(timeseries: List[dict]) -> Dict[str, Any]:
 
 
 def compute_farm_metrics(geometry_geojson: dict, start_date: str, end_date: str) -> Dict[str, Any]:
-    items = _search_items(geometry_geojson, start_date, end_date, limit=5)
+    items = _search_items(geometry_geojson, start_date, end_date, limit=3)
 
     if not items:
         raise Exception("No Sentinel-2 scenes found for this polygon/date range.")
 
     items.sort(key=lambda x: x.properties.get("eo:cloud_cover", 100.0))
 
-    best = items[:5]
+    best = items[:3]
     best_signed = [pc.sign(it) for it in best]
 
     series = []
@@ -181,7 +181,7 @@ def compute_farm_metrics(geometry_geojson: dict, start_date: str, end_date: str)
         raise Exception("Scenes found, but none could be processed for this polygon.")
 
     series.sort(key=lambda p: p["date"])
-    series_for_chart = series[-5:]
+    series_for_chart = series[-3:]
 
     summary = series_for_chart[-1].copy()
     change = _compute_change_pct(series)
