@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 import uvicorn
@@ -7,11 +7,15 @@ from uuid import uuid4
 from model_def import CottonDiseaseModel
 
 from database import engine, SessionLocal
-from models import Base, DiseaseReport, User
+from models import Base, DiseaseReport, User, Farm, SatelliteReport
 
 from routes.satellite_pc import router as satellite_router
 from routes.auth import router as auth_router
 from routes.history import router as history_router
+
+from pydantic import BaseModel
+from datetime import date, datetime
+import json
 
 app = FastAPI(
     openapi_url="/api/openapi.json",
@@ -109,6 +113,237 @@ async def predict(
     result["disease_name"] = str(label)
     return result
 
+class CropStageRequest(BaseModel):
+    farm_id: int | None = None
+    farm_name: str | None = None
+    sowing_date: str
+
+
+def get_cotton_stage(days: int):
+    if days <= 15:
+        return {
+            "name": "Seedling",
+            "icon": "🌱",
+            "advice": [
+                "Ensure light and frequent irrigation.",
+                "Protect young seedlings from pests and early stress."
+            ]
+        }
+
+    if days <= 35:
+        return {
+            "name": "Vegetative",
+            "icon": "🌿",
+            "advice": [
+                "Support strong leaf and stem growth with balanced nutrition.",
+                "Monitor weeds because competition is high in this stage."
+            ]
+        }
+
+    if days <= 55:
+        return {
+            "name": "Budding",
+            "icon": "🌾",
+            "advice": [
+                "Monitor square formation carefully.",
+                "Check for sucking pests and early bollworm activity."
+            ]
+        }
+
+    if days <= 80:
+        return {
+            "name": "Flowering",
+            "icon": "🌸",
+            "advice": [
+                "Maintain proper irrigation during flowering.",
+                "Monitor pest attacks because flowering is a sensitive stage."
+            ]
+        }
+
+    if days <= 120:
+        return {
+            "name": "Boll Formation",
+            "icon": "🟢",
+            "advice": [
+                "Avoid water stress during boll development.",
+                "Monitor bollworm and nutrient deficiency symptoms."
+            ]
+        }
+
+    return {
+        "name": "Harvesting",
+        "icon": "🌾",
+        "advice": [
+            "Prepare for picking when bolls are mature and open.",
+            "Avoid unnecessary irrigation close to harvesting."
+        ]
+    }
+
+
+def safe_float(value):
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def evaluate_stage_support(stage_name: str, ndvi, evi, ndmi, has_real_satellite: bool):
+    if not has_real_satellite:
+        return {
+            "confidence": "Medium",
+            "satellite_support": "Limited",
+            "note": "No saved satellite run was found for this farm. Stage is estimated mainly from sowing date."
+        }
+
+    ndvi = safe_float(ndvi)
+    evi = safe_float(evi)
+    ndmi = safe_float(ndmi)
+
+    if ndvi is None:
+        confidence = "Medium"
+        satellite_support = "Limited"
+        note = "Satellite report exists, but NDVI was unavailable. Stage is estimated mainly from sowing date."
+
+    elif ndvi < 0.25:
+        confidence = "Low"
+        satellite_support = "Weak"
+        note = "Vegetation signal appears weak for this stage. Field inspection is recommended."
+
+    elif ndvi < 0.5:
+        confidence = "Medium"
+        satellite_support = "Moderate"
+        note = "Satellite indicators partially support the estimated crop stage."
+
+    else:
+        confidence = "High"
+        satellite_support = "Strong"
+        note = "Satellite vegetation indicators strongly support the estimated crop stage."
+
+    return {
+        "confidence": confidence,
+        "satellite_support": satellite_support,
+        "note": note
+    }
+
+
+@app.post("/crop-stage/detect")
+def detect_crop_stage(
+    req: CropStageRequest,
+    x_user_id: str = Header(None, alias="X-User-Id")
+):
+    if not x_user_id:
+        raise HTTPException(status_code=401, detail="Missing X-User-Id header")
+
+    try:
+        user_id = int(x_user_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid user id")
+
+    try:
+        sowing = date.fromisoformat(req.sowing_date)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid sowing_date. Use YYYY-MM-DD.")
+
+    today = date.today()
+    days = (today - sowing).days
+
+    if days < 0:
+        raise HTTPException(status_code=400, detail="Sowing date cannot be in the future.")
+
+    db = SessionLocal()
+
+    try:
+        farm = None
+
+        if req.farm_id:
+            farm = (
+                db.query(Farm)
+                .filter(Farm.id == req.farm_id, Farm.user_id == user_id)
+                .first()
+            )
+
+            if not farm:
+                raise HTTPException(status_code=404, detail="Farm not found for this user")
+
+        latest_sat = None
+
+        if req.farm_id:
+            latest_sat = (
+                db.query(SatelliteReport)
+                .filter(
+                    SatelliteReport.user_id == user_id,
+                    SatelliteReport.farm_id == req.farm_id
+                )
+                .order_by(SatelliteReport.created_at.desc())
+                .first()
+            )
+
+        if not latest_sat and farm:
+            latest_sat = (
+                db.query(SatelliteReport)
+                .filter(
+                    SatelliteReport.user_id == user_id,
+                    SatelliteReport.farm_name == farm.name
+                )
+                .order_by(SatelliteReport.created_at.desc())
+                .first()
+            )
+
+        summary = {}
+
+        if latest_sat:
+            try:
+                summary = json.loads(latest_sat.summary_json or "{}")
+            except Exception:
+                summary = {}
+
+        ndvi = summary.get("ndvi", summary.get("mean"))
+        evi = summary.get("evi")
+        ndmi = summary.get("ndmi")
+
+        has_real_satellite = latest_sat is not None
+
+        stage = get_cotton_stage(days)
+
+        evaluation = evaluate_stage_support(
+            stage_name=stage["name"],
+            ndvi=ndvi,
+            evi=evi,
+            ndmi=ndmi,
+            has_real_satellite=has_real_satellite
+        )
+
+        return {
+            "farm": {
+                "id": farm.id if farm else req.farm_id,
+                "name": farm.name if farm else req.farm_name
+            },
+            "sowing_date": req.sowing_date,
+            "crop_age_days": days,
+            "stage": stage["name"],
+            "icon": stage["icon"],
+            "confidence": evaluation["confidence"],
+            "satellite_support": evaluation["satellite_support"],
+            "satellite_note": evaluation["note"],
+            "satellite": {
+                "available": has_real_satellite,
+                "report_id": latest_sat.id if latest_sat else None,
+                "created_at": latest_sat.created_at.isoformat() if latest_sat else None,
+                "ndvi": safe_float(ndvi),
+                "evi": safe_float(evi),
+                "ndmi": safe_float(ndmi),
+                "source": "saved_satellite_run" if latest_sat else "none"
+            },
+            "recommendations": [
+                f"Estimated cotton stage is {stage['name']} based on {days} days after sowing.",
+                *stage["advice"]
+            ]
+        }
+
+    finally:
+        db.close()
 
 @app.get("/ping")
 def ping():
