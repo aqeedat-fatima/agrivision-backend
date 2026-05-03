@@ -3,8 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 import uvicorn
 from uuid import uuid4
+from pydantic import BaseModel
+from datetime import date
+import json
+import io
+from PIL import Image
 
 from model_def import CottonDiseaseModel
+from cotton_validator import cotton_validator
 
 from database import engine, SessionLocal
 from models import Base, DiseaseReport, User, Farm, SatelliteReport
@@ -13,9 +19,6 @@ from routes.satellite_pc import router as satellite_router
 from routes.auth import router as auth_router
 from routes.history import router as history_router
 
-from pydantic import BaseModel
-from datetime import date, datetime
-import json
 
 app = FastAPI(
     openapi_url="/api/openapi.json",
@@ -23,9 +26,11 @@ app = FastAPI(
     redoc_url="/api/redoc",
 )
 
+
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -39,7 +44,8 @@ app.include_router(satellite_router)
 app.include_router(auth_router)
 app.include_router(history_router)
 
-# ---- LOAD MODEL ONCE ----
+
+# ---- LOAD DISEASE MODEL ONCE ----
 BASE_DIR = Path(__file__).resolve().parent
 WEIGHTS_PATH = BASE_DIR / "efficientnet_b3_cotton_best.pth"
 model = CottonDiseaseModel(str(WEIGHTS_PATH))
@@ -51,9 +57,33 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 @app.post("/predict")
 async def predict(
     file: UploadFile = File(...),
-    user_id: int = Form(...),  # ✅ must be sent from frontend
+    user_id: int = Form(...),
 ):
     contents = await file.read()
+
+    # ----------------------------
+    # Cotton validation first
+    # ----------------------------
+    try:
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+    except Exception:
+        return {
+            "valid": False,
+            "message": "Invalid image file. Please upload a clear cotton leaf image."
+        }
+
+    validation = cotton_validator.predict(image)
+
+    if not validation["is_valid"]:
+        return {
+            "valid": False,
+            "message": "Invalid image. Please upload a cotton leaf image.",
+            "validator": validation
+        }
+
+    # ----------------------------
+    # Run disease model only if cotton is valid
+    # ----------------------------
     result = model.predict(contents)
 
     # ----------------------------
@@ -62,11 +92,12 @@ async def predict(
     ext = Path(file.filename).suffix.lower() or ".jpg"
     fname = f"{uuid4().hex}{ext}"
     fpath = UPLOAD_DIR / fname
+
     with open(fpath, "wb") as f:
         f.write(contents)
 
     # ----------------------------
-    # Normalize model keys (avoid "Unknown" bugs)
+    # Normalize model keys
     # ----------------------------
     label = (
         result.get("pred_label")
@@ -83,14 +114,16 @@ async def predict(
     )
 
     conf_val = result.get("confidence")
-    confidence = "" if conf_val is None else str(conf_val)  # matches your DB schema (VARCHAR)
+    confidence = "" if conf_val is None else str(conf_val)
 
     # ----------------------------
     # Store report in DB for this user
     # ----------------------------
     db = SessionLocal()
+
     try:
         user = db.query(User).filter(User.id == user_id).first()
+
         if user:
             row = DiseaseReport(
                 user_id=user_id,
@@ -102,16 +135,21 @@ async def predict(
                 cause=result.get("cause"),
                 prevention=result.get("prevention"),
             )
+
             db.add(row)
             db.commit()
+
     finally:
         db.close()
 
-    # return same result + image path so frontend can show it
+    result["valid"] = True
+    result["validator"] = validation
     result["image_path"] = str(fpath).replace("\\", "/")
     result["disease_key"] = str(disease_key)
     result["disease_name"] = str(label)
+
     return result
+
 
 class CropStageRequest(BaseModel):
     farm_id: int | None = None
@@ -344,6 +382,7 @@ def detect_crop_stage(
 
     finally:
         db.close()
+
 
 @app.get("/ping")
 def ping():
